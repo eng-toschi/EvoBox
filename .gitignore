@@ -19,3 +19,7 @@ captures/
 
 # OS
 .DS_Store
+
+# Claude Code local overrides
+.claude/settings.local.json
+night-*.log

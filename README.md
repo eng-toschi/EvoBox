@@ -22,3 +22,14 @@ Fase **F0** (estrutura + suíte de conformidade) — ver SPEC §11.
 ## Conformidade com o Racevo
 
 `test/fixtures/racebox_test_vectors.json` é cópia verbatim dos golden vectors do Racevo (frames reais do vendor com checksum). A suíte `pio test -e native` prova que os frames que o EvoBox emite são byte-idênticos aos que o Racevo espera. Não edite o fixture — recopie quando o Racevo atualizar o dele.
+
+## Rodar a noite (Claude Code autônomo)
+
+No Mac, com a placa no USB, na pasta do repo:
+
+```bash
+git pull
+caffeinate -i claude -p "Siga docs/NIGHT_RUN.md à risca." --permission-mode auto 2>&1 | tee night-$(date +%F).log
+```
+
+De manhã: leia `docs/NIGHT_LOG.md` na branch `night/<data>`.

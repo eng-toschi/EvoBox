@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit(/**)",
+      "Bash(pio *)",
+      "Bash(platformio *)",
+      "Bash(python3 *)",
+      "Bash(pip3 install *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git switch *)",
+      "Bash(git checkout -b *)",
+      "Bash(git branch *)",
+      "Bash(git push -u origin night/*)",
+      "Bash(git push origin night/*)",
+      "Bash(ls *)",
+      "Bash(mkdir *)",
+      "Bash(date *)"
+    ],
+    "deny": [
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push origin main *)",
+      "Bash(git push * main)",
+      "Bash(git reset --hard *)",
+      "Bash(rm -rf *)",
+      "Bash(sudo *)"
+    ]
+  }
+}
