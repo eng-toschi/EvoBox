@@ -362,7 +362,7 @@ Nenhuma task bloqueia outra: todas as filas com `xQueueSend(..., 0)` + contador 
 
 ### 9.3 Modo simulação (`-DGA_SIM=1` ou `sim on`)
 
-Gera NAV-PVTs sintéticos de uma pista circular (raio e velocidade configuráveis, 25 Hz, fix 3D) com a IMU coerente (aceleração centrípeta). Serve para testar o Racevo **dentro de casa** — inclusive o demo do M4 dele ("gravar 5 voltas num gate sintético"). Frames em modo sim têm `numSV = 0` e `hAcc` alto `‹VALIDAR›` para nunca serem confundidos com dado real numa sessão de pista.
+Gera NAV-PVTs sintéticos de uma pista circular (raio e velocidade configuráveis, 25 Hz, fix 3D) com a IMU coerente (aceleração centrípeta). Serve para testar o Racevo **dentro de casa** — inclusive o demo do M4 dele ("gravar 5 voltas num gate sintético"). Frames em modo sim têm `numSV = 0` (marca) e `hAcc` = 2,5 m — abaixo do mínimo default de 3,0 m do `0x27`, senão o b0 de Fix Status Flags sairia zerado e o Racevo não fecharia volta (D21). A taxa é a pedida (sem limite de módulo; o teto `max_rate` vale) e o `iTOW` continua o do receptor. NAV-PVT real não entra na `pvt_q` enquanto a simulação está ligada.
 
 ### 9.4 LED
 
@@ -489,6 +489,7 @@ EvoBox/
 | D18 | `0x25` durante download/erase | **Decidido (2026-10-20):** a regra "NACK se download/erase em andamento" vale para escritas que **mudam** algo. `Enable=1` idêntico com gravação ativa continua ACK sem efeito mesmo durante um download (R11: o Racevo reenvia o preset a cada reconexão; um NACK aí não protege nada e quebraria o chip de backup) |
 | D19 | Valor da resposta do `0x23` | **Decidido (2026-10-20):** `0x21 + 0x26` armazenados até o snapshot (o vendor chama de "expected max history messages" e garante só limite superior). `0x22.stored` continua contando só `0x21` |
 | D20 | Reserva de espaço na gravação | **Decidido (2026-10-20):** a gravação é assíncrona (fila → task storage), mas o recorder precisa saber na hora se o registro cabe (para gravar `state=0` e parar ao encher). A reserva usa a **mesma regra** de posicionamento do log (`FlashLog::next_wp`, provada igual ao append em native); fila cheia conta `log_q_dropped` e mantém a reserva (conservador: nunca sobrescreve) |
+| D21 | `hAcc` dos frames de simulação | **Decidido (2026-10-20):** 2,5 m em vez de "alto": com o default de 3,0 m do `0x27` (D15) um `hAcc` alto zeraria o good fix e a demo do Racevo (gravar voltas em casa) não funcionaria. A marca de simulação é `numSV = 0` (nenhum fix real tem 0 satélites) |
 
 ### Itens do checklist `‹VERIFY›` do Racevo (04 §11) que este hardware ajuda a fechar
 
