@@ -147,7 +147,9 @@ def describe(cls: int, mid: int, p: bytes) -> str:
 # --- conexão ------------------------------------------------------------------
 
 async def find_device(name: Optional[str], timeout: float):
-    def match(dev, adv):
+    """Acha UM device. Sem --name, recusa escolher se houver mais de um
+    candidato (um RaceBox real por perto também anuncia "RaceBox Mini S ...")."""
+    def is_candidate(dev, adv):
         n = adv.local_name or dev.name or ""
         if name:
             return name in n
@@ -155,10 +157,19 @@ async def find_device(name: Optional[str], timeout: float):
             return True
         return UART_SERVICE in [u.lower() for u in (adv.service_uuids or [])]
 
-    dev = await BleakScanner.find_device_by_filter(match, timeout=timeout)
-    if dev is None:
-        sys.exit("device not found (name filter=%r)" % name)
-    return dev
+    if name:
+        dev = await BleakScanner.find_device_by_filter(is_candidate, timeout=timeout)
+        if dev is None:
+            sys.exit("device not found (name filter=%r)" % name)
+        return dev
+    found = await BleakScanner.discover(timeout=min(timeout, 5.0), return_adv=True)
+    cands = [(d, a) for d, a in found.values() if is_candidate(d, a)]
+    if not cands:
+        sys.exit("no RaceBox-protocol device found")
+    if len(cands) > 1:
+        names = ", ".join(repr(a.local_name or d.name) for d, a in cands)
+        sys.exit("several candidates (%s): pass --name <serial> to pick one" % names)
+    return cands[0][0]
 
 
 class Session:
@@ -309,10 +320,18 @@ async def cmd_live(args):
 
         s.handlers.append(on)
         await s.subscribe()
-        await asyncio.sleep(args.seconds)
-        await client.stop_notify(UART_TX)
+        t_end = time.monotonic() + args.seconds
+        while time.monotonic() < t_end and client.is_connected:
+            await asyncio.sleep(0.2)
+        if not client.is_connected:
+            print("link dropped after %.1f s" % (args.seconds - (t_end - time.monotonic())))
+        else:
+            await client.stop_notify(UART_TX)
     finally:
-        await client.disconnect()
+        try:
+            await client.disconnect()
+        except Exception:  # noqa: BLE001 — o link pode já ter caído
+            pass
     if s.first_frame_t is not None:
         print("first live frame %.0f ms after subscribe (A2: < 1000 ms)" % ((s.first_frame_t - s.subscribe_t) * 1000))
     else:
@@ -353,7 +372,11 @@ async def cmd_cmd(args):
                 mid, payload = NAMED[name]
             elif name.lower().startswith("b562"):
                 raw = bytes.fromhex(name)
-                mid, payload = raw[3], raw[6:-2] if len(raw) > 8 else raw[6:]
+                asm = Assembler()
+                frames = asm.feed(raw)
+                if len(frames) != 1 or len(raw) != len(frames[0][2]) + 8:
+                    sys.exit("raw %r is not exactly one valid UBX frame (checksum included)" % name)
+                mid, payload = frames[0][1], frames[0][2]
             else:
                 sys.exit("unknown command %r (known: %s)" % (name, ", ".join(NAMED)))
 
@@ -372,6 +395,7 @@ async def cmd_cmd(args):
 async def cmd_download(args):
     client, s = await open_session(args)
     hist = 0
+    rows: List[Dict[str, int]] = []
     states: List[Tuple[int, int]] = []
     done = asyncio.get_running_loop().create_future()
     expected = [None]
@@ -389,6 +413,8 @@ async def cmd_download(args):
                 print("download: expected <= %d records" % expected[0])
             elif mid == 0x21 and len(p) == 80:
                 hist += 1
+                if args.csv:
+                    rows.append(decode_live(p))
                 if t_first[0] is None:
                     t_first[0] = t
                 if args.cancel_after and hist == args.cancel_after:
@@ -411,6 +437,13 @@ async def cmd_download(args):
         print("  0x26 state=%d after %d records" % (st, at))
     runs = sum(1 for _, st in states if st == 1) or (1 if hist else 0)
     print("runs (Racevo splitDownloadIntoRuns): %d" % runs)
+    if args.csv:
+        os.makedirs(os.path.dirname(args.csv) or ".", exist_ok=True)
+        with open(args.csv, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=LIVE_FIELDS)
+            w.writeheader()
+            w.writerows(rows)
+        print("csv: %s (%d rows)" % (args.csv, len(rows)))
 
 
 async def cmd_erase(args):
@@ -479,12 +512,14 @@ def main():
     p = sub.add_parser("download")
     p.add_argument("--timeout", type=float, default=600.0)
     p.add_argument("--cancel-after", type=int, default=0)
+    p.add_argument("--csv", default=None)
     p = sub.add_parser("erase")
     p.add_argument("--timeout", type=float, default=600.0)
     p.add_argument("--cancel-at", type=int, default=None)
     p = sub.add_parser("walkthrough")
     p.add_argument("--timeout", type=float, default=600.0)
     p.add_argument("--cancel-after", type=int, default=0)
+    p.add_argument("--csv", default=None)
     args = ap.parse_args()
     fn = {"scan": cmd_scan, "info": cmd_info, "live": cmd_live, "cmd": cmd_cmd,
           "download": cmd_download, "erase": cmd_erase, "walkthrough": cmd_walkthrough}[args.cmd]

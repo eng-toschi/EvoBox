@@ -125,6 +125,14 @@ void start() {
     return;
   }
   EVO_LOG("imu", "MPU6050 WHO_AM_I=0x%02X, +-8 g, +-500 dps, 1 kHz FIFO", info.who_am_i);
+  EVO_LOG("imu", "FIFO self-check: PWR_MGMT_1=0x%02X USER_CTRL=0x%02X FIFO_EN=0x%02X CONFIG=0x%02X count after 100 ms=%u B",
+          info.pwr_mgmt_1, info.user_ctrl, info.fifo_en, info.config, info.fifo_count_20ms);
+  EVO_LOG("imu", "multi-byte reads: count ok=%d, data ok=%d (got %u of 14 B)", info.count_read_ok,
+          info.raw_read_ok, (unsigned)info.raw_got);
+  EVO_LOG("imu", "raw registers: INT_STATUS=0x%02X acc=(%d,%d,%d) gyro=(%d,%d,%d)", info.int_status,
+          info.raw.ax, info.raw.ay, info.raw.az, info.raw.gx, info.raw.gy, info.raw.gz);
+  EVO_LOG("imu", "temp_raw=%d tried_internal_clk=%d fifo_count_internal_clk=%u", info.temp_raw,
+          info.tried_internal_clk, info.fifo_count_internal_clk);
   xTaskCreatePinnedToCore(task, "imu", 4096, nullptr, 5, nullptr, 1);
 }
 

@@ -17,6 +17,16 @@ struct Sample {
 struct Info {
   bool present = false;
   uint8_t who_am_i = 0;
+  // Autoteste do FIFO no boot: registros lidos de volta e contagem após ~20 ms.
+  uint8_t pwr_mgmt_1 = 0, user_ctrl = 0, fifo_en = 0, config = 0;
+  uint16_t fifo_count_20ms = 0;
+  uint8_t int_status = 0;
+  bool count_read_ok = false, raw_read_ok = false;
+  size_t raw_got = 0;  // bytes devolvidos pelo requestFrom de 14 B
+  Sample raw{};
+  int16_t temp_raw = 0;
+  bool tried_internal_clk = false;
+  uint16_t fifo_count_internal_clk = 0;  // leitura direta dos registros de dados (0x3B..0x48)
 };
 
 // Configura e liga o FIFO. false se o sensor não responder.

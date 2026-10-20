@@ -32,7 +32,9 @@ void wake() {
 
 void init() {
   g_resp = xQueueCreate(16, sizeof(Resp));
-  g_live = xQueueCreate(4, sizeof(Live));
+  // 16 frames = 640 ms a 25 Hz: absorve paradas curtas da central sem perder;
+  // além disso descarta o mais antigo (SPEC §4.3).
+  g_live = xQueueCreate(16, sizeof(Live));
   g_bulk = xStreamBufferCreate(4096, 1);
 }
 
