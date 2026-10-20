@@ -16,6 +16,7 @@ __pycache__/
 captures/
 *.csv
 !test/fixtures/*.csv
+!/partitions.csv
 
 # OS
 .DS_Store
