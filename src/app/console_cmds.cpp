@@ -9,6 +9,8 @@
 #include "app/builder.h"
 #include "app/console.h"
 #include "app/settings.h"
+#include "ble/ble_server.h"
+#include "ble/tx_queue.h"
 #include "config.h"
 #include "gnss/gnss.h"
 #include "messages.h"
@@ -49,6 +51,8 @@ bool cmd_stats(const char* args) {
   if (strcmp(args, "reset") == 0) {
     gnss::reset_stats();
     builder::reset_stats();
+    ble::reset_stats();
+    txq::reset_stats();
     Serial.println("stats reset");
     return true;
   }
@@ -63,10 +67,47 @@ bool cmd_stats(const char* args) {
   Serial.printf("gnss: dITOW period=%u ms: on=%u off=%u gaps=%u min=%u max=%u (n=%u) rx_jitter_max=%u ms\n",
                 s.period_ms, (unsigned)g.dt_on_period, (unsigned)g.dt_off_period, (unsigned)g.gaps,
                 (unsigned)g.dt_min, (unsigned)g.dt_max, (unsigned)n, (unsigned)g.rx_jitter_max_ms);
+  const ble::Stats bs = ble::stats();
+  const txq::Stats ts = txq::stats();
+  Serial.printf("ble: connects=%u disconnects=%u notifies=%u bytes=%u enomem_retries=%u rx_frames=%u rx_bad=%u first_live_after_sub=%u ms\n",
+                (unsigned)bs.connects, (unsigned)bs.disconnects, (unsigned)bs.notifies,
+                (unsigned)bs.notify_bytes, (unsigned)bs.enomem_retries, (unsigned)bs.rx_frames,
+                (unsigned)bs.rx_bad, (unsigned)bs.first_live_after_sub_ms);
+  Serial.printf("txq: live_queued=%u live_dropped=%u live_muted=%u resp_dropped=%u\n",
+                (unsigned)ts.live_queued, (unsigned)ts.live_dropped, (unsigned)ts.live_muted,
+                (unsigned)ts.resp_dropped);
   Serial.printf("build: frames=%u imu_stall=%u itow_resolved=%u itow_backsteps=%u build_us_max=%u latency_ms_max=%u\n",
                 (unsigned)b.frames, (unsigned)b.imu_stall, (unsigned)b.itow_time_resolved,
                 (unsigned)b.itow_backsteps, (unsigned)b.build_us_max, (unsigned)b.latency_ms_max);
   return true;
+}
+
+bool cmd_status(const char*) {
+  const ble::Status b = ble::status();
+  const gnss::Status g = gnss::status();
+  Serial.printf("fw        : EvoBox %s (DIS fw %s), sim=%d\n", EVOBOX_FW_VERSION, GA_DIS_FIRMWARE, GA_SIM);
+  Serial.printf("ble       : \"%s\" %s%s mtu=%u interval=%u.%02u ms%s\n", b.name,
+                b.connected ? "CONNECTED" : (b.advertising ? (b.adv_fast ? "advertising(100ms)" : "advertising(500ms)") : "idle"),
+                b.subscribed ? " SUBSCRIBED" : "", b.mtu, b.conn_interval_x125 * 125 / 100,
+                b.conn_interval_x125 * 125 % 100, b.mtu_limit ? " [mtu limit set]" : "");
+  Serial.printf("gnss      : %s %u Hz%s\n", ubx::module_name(g.info.module), rb::rate_hz(g.effective_code),
+                g.limited ? " (limited)" : "");
+  return true;
+}
+
+bool cmd_ble(const char* args) {
+  if (strncmp(args, "mtu ", 4) == 0) {
+    const long v = strtol(args + 4, nullptr, 10);
+    if (v != 0 && (v < 23 || v > 517)) return false;
+    ble::set_mtu_limit(static_cast<uint16_t>(v));
+    Serial.printf("local MTU limit = %ld (0 = default 517); applies to the next connection\n", v);
+    return true;
+  }
+  if (strcmp(args, "disconnect") == 0) {
+    ble::disconnect();
+    return true;
+  }
+  return false;
 }
 
 bool cmd_rate(const char* args) {
@@ -112,6 +153,8 @@ bool cmd_reboot(const char*) {
 }  // namespace
 
 void register_base() {
+  console::add("status", "", cmd_status);
+  console::add("ble", "mtu <23..517|0> | disconnect", cmd_ble);
   console::add("gnss info", "", cmd_gnss_info);
   console::add("stats", "[reset]", cmd_stats);
   console::add("rate", "<0..4>  (0=25 1=10 2=5 3=1 4=20 Hz)", cmd_rate);
