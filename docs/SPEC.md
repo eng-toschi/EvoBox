@@ -279,7 +279,7 @@ Query vazia → resposta 12 B: `recording(1) | memory %(1) | security(1)=0x00 | 
 
 ### 7.3 `0x23` — Download
 
-1. Payload vazio → responder `0x23` com `u32 = registros armazenados` (limite superior para a barra de progresso).
+1. Payload vazio → responder `0x23` com `u32 = registros armazenados` (limite superior para a barra de progresso) — conta `0x21` **+** `0x26` até o snapshot, para ser de fato um limite superior das mensagens enviadas (D19).
 2. **Silenciar o live `0x01`** durante o dump.
 3. Transmitir, na ordem de gravação, `0x21` (80 B, layout idêntico ao `0x01`) intercalados com os `0x26` gravados (12 B), empacotando vários frames por notify.
 4. Fim → ACK referenciando `0xFF 0x23`, retomar live.
@@ -334,7 +334,7 @@ Tabela de partições custom (`partitions.csv`): `nvs 24K | otadata 8K | app0 1.
 Não usar sistema de arquivos para o log (escrita a 25 Hz em LittleFS desgasta e fragmenta). **Log circular append-only direto na partição** via `esp_partition_*`:
 
 - Registro = `tag(1) | len(1) | payload(N) | crc8(1)` — tags `0x21` (80 B) e `0x26` (12 B).
-- Escrita em buffer de RAM de 4 KB, flush por setor; em queda de energia perde-se no máximo o setor aberto (≤ ~2 s @25 Hz).
+- Escrita em buffer de RAM do setor aberto (4 KB), **programado na flash a cada ≤ 1 s ou ≤ 1 KB** (NOR aceita completar um setor apagado por partes); em queda de energia perde-se no máximo ~1 s (D17). Registro nunca atravessa setor; registro rasgado por queda de energia fecha o setor e o log segue no próximo.
 - Boot: varredura do último setor válido para recuperar o ponteiro de escrita e a contagem (sem índice separado que possa divergir).
 - Cheio: **parar de gravar** (não sobrescrever o mais antigo — o vendor não sobrescreve) e reportar `memory % = 100`.
 - Não-objetivo: o `.rbox` é formato do Racevo, gerado pelo app. O firmware não escreve `.rbox`.
@@ -485,6 +485,10 @@ EvoBox/
 | D14 | `0x25` com 10 B: qual campo falta? | **Decidido (2026-10-19):** o layout do vendor tem 12 B com o auto-shutdown no fim (offset 10); 10 B = os 10 primeiros, e o auto-shutdown **mantém o valor atual**. `‹VALIDAR›` contra um Mini S real (o Racevo manda 12) |
 | D15 | Unidade do *min horizontal accuracy* do `0x27` | **Decidido (2026-10-19):** décimos de metro. A prosa do vendor diz "metros", mas o único exemplo em bytes (Rev 8 p.10, `B5 62 FF 27 03 00 08 01 14 46 20`, checksum válido) decodifica `0x14` = 20 como "2.0 m". Byte do vendor > prosa. Default 3,0 m = `30`. O Racevo não usa o `0x27`. `‹VALIDAR›` lendo o `0x27` de um Mini S real (esperado `04 00 1E`) |
 | D16 | **Divergência de hardware:** a placa vendida como NEO-M8N tem um chip **u-blox M10** (SPG 5.10, PROTVER 34.10) | **Decidido (2026-10-20):** tratar como M10: config por `CFG-VALSET`, baud 115200, **teto de 10 Hz** (tabela §2.2: "10 Hz com 4 GNSS, ‹VALIDAR›"). Medido em bancada, **sem fix**: com `measRate` 40 ms o M10 entregou 416 NAV-PVT seguidos com Δ`iTOW` = 40 ms e zero gaps — isso **não** prova 25 Hz com fix (épocas sem solução são baratas). Constelações de fábrica deste módulo: GPS+Galileo+BeiDou (sem GLONASS); o firmware não mexe. `‹VALIDAR›` em campo com fix: 25 Hz com GPS+GAL; se Δ`iTOW` ficar em 40 ms com `hAcc`/numSV bons, subir o teto do M10 e documentar. Consequência: com esta placa, o Racevo recebe 10 Hz (igual ao plano do M8N) |
+| D17 | Flush do log vs A8 (perda ≤ 2 s) | **Decidido (2026-10-20):** "flush por setor" (§8.2) perderia até ~4,9 s a 10 Hz (49 registros/setor). O setor aberto é programado por partes a cada ≤ 1 s ou ≤ 1 KB (NOR permite programar bytes ainda apagados) → perda ≤ ~1 s em qualquer taxa. Nenhum byte é reprogramado (provado em `test_flash_log` com flash NOR simulada) |
+| D18 | `0x25` durante download/erase | **Decidido (2026-10-20):** a regra "NACK se download/erase em andamento" vale para escritas que **mudam** algo. `Enable=1` idêntico com gravação ativa continua ACK sem efeito mesmo durante um download (R11: o Racevo reenvia o preset a cada reconexão; um NACK aí não protege nada e quebraria o chip de backup) |
+| D19 | Valor da resposta do `0x23` | **Decidido (2026-10-20):** `0x21 + 0x26` armazenados até o snapshot (o vendor chama de "expected max history messages" e garante só limite superior). `0x22.stored` continua contando só `0x21` |
+| D20 | Reserva de espaço na gravação | **Decidido (2026-10-20):** a gravação é assíncrona (fila → task storage), mas o recorder precisa saber na hora se o registro cabe (para gravar `state=0` e parar ao encher). A reserva usa a **mesma regra** de posicionamento do log (`FlashLog::next_wp`, provada igual ao append em native); fila cheia conta `log_q_dropped` e mantém a reserva (conservador: nunca sobrescreve) |
 
 ### Itens do checklist `‹VERIFY›` do Racevo (04 §11) que este hardware ajuda a fechar
 
