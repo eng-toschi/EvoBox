@@ -60,5 +60,8 @@ Status status();
 Stats stats();
 void reset_stats();
 void set_log_pvt(bool on);
+// Simulação ativa: NAV-PVT real continua contado nas estatísticas, mas não
+// vai para a pvt_q (nunca mistura dado real com sintético).
+void set_suppress_pvt(bool on);
 
 }  // namespace gnss

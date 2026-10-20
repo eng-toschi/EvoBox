@@ -17,7 +17,7 @@ constexpr size_t kFrameLen = rb::kLivePayloadLen + rb::kOverhead;  // 88
 using LiveSink = void (*)(const uint8_t frame[kFrameLen], const rb::LiveData& d, uint32_t rx_ms);
 // Fecha a janela IMU da época e devolve a média no frame do fio. false =
 // janela vazia (o builder repete o último valor e conta imu_stall).
-using MotionSource = bool (*)(rb::Motion* out);
+using MotionSource = bool (*)(const uint8_t* pvt, uint32_t rx_ms, rb::Motion* out);
 
 struct Stats {
   uint32_t frames = 0;
@@ -27,6 +27,7 @@ struct Stats {
   uint32_t build_us_max = 0;    // NAV-PVT na fila → sinks entregues
   uint32_t latency_ms_max = 0;  // chegada do NAV-PVT na UART → sinks entregues
   uint32_t last_itow_out = 0;
+  bool last_good_fix = false;
 };
 
 void start(QueueHandle_t pvt_q);

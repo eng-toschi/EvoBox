@@ -19,6 +19,7 @@ portMUX_TYPE g_mux = portMUX_INITIALIZER_UNLOCKED;
 Status g_status;
 Stats g_stats;
 volatile bool g_log_pvt = false;
+volatile bool g_suppress = false;
 
 // Pedidos de outras tasks (0xFF = nenhum).
 volatile uint8_t g_req_rate = 0xFF;
@@ -70,7 +71,7 @@ void on_pvt(const uint8_t* p, uint32_t now) {
   Pvt item;
   memcpy(item.raw, p, rb::kNavPvtLen);
   item.rx_ms = now;
-  if (g_pvt_q && xQueueSend(g_pvt_q, &item, 0) != pdTRUE) {
+  if (g_pvt_q && !g_suppress && xQueueSend(g_pvt_q, &item, 0) != pdTRUE) {
     portENTER_CRITICAL(&g_mux);
     ++g_stats.pvt_dropped;
     portEXIT_CRITICAL(&g_mux);
@@ -475,5 +476,6 @@ void reset_stats() {
 }
 
 void set_log_pvt(bool on) { g_log_pvt = on; }
+void set_suppress_pvt(bool on) { g_suppress = on; }
 
 }  // namespace gnss

@@ -34,7 +34,7 @@ void task(void*) {
     rb::Motion m = g_last_motion;
     bool stall = false;
     if (g_motion) {
-      if (g_motion(&m)) g_last_motion = m;
+      if (g_motion(pvt.raw, pvt.rx_ms, &m)) g_last_motion = m;
       else {
         m = g_last_motion;
         stall = true;
@@ -77,6 +77,7 @@ void task(void*) {
     if (us > g_stats.build_us_max) g_stats.build_us_max = us;
     if (lat > g_stats.latency_ms_max) g_stats.latency_ms_max = lat;
     g_stats.last_itow_out = d.itow;
+    g_stats.last_good_fix = rb::good_fix(d);
     portEXIT_CRITICAL(&g_mux);
 
     if (g_log_frames) {

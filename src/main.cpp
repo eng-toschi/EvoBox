@@ -4,30 +4,34 @@
 #include "app/builder.h"
 #include "app/console.h"
 #include "app/console_cmds.h"
+#include "app/device.h"
 #include "app/log.h"
+#include "app/power.h"
 #include "app/settings.h"
+#include "app/sim_runtime.h"
 #include "ble/ble_server.h"
-#include "ble/tx_queue.h"
-#include "messages.h"
 #include "config.h"
 #include "gnss/gnss.h"
+#include "imu/imu.h"
+#include "storage/storage.h"
 
 namespace {
 QueueHandle_t g_pvt_q = nullptr;
 bool g_hw_rev_set = false;
 
+// Motion source: simulação (IMU coerente com a pista) ou MPU6050 real.
+bool motion(const uint8_t* pvt, uint32_t rx_ms, rb::Motion* out) {
+  if (sim_rt::active()) return sim_rt::motion_for_epoch(pvt, rx_ms, out);
+  if (imu::present()) return imu::motion_for_epoch(pvt, rx_ms, out);
+  *out = rb::Motion{};
+  out->gz_mg = 1000.0f;  // sem IMU: parado e nivelado
+  return true;
+}
+
 void live_to_ble(const uint8_t frame[builder::kFrameLen], const rb::LiveData&, uint32_t) {
   ble::on_live_frame(frame);
 }
 
-// F2: os comandos Mini S chegam na F4 — até lá todo id é desconhecido → NACK (D6).
-void command_handler(const rb::Frame& f) {
-  EVO_LOG("cmd", "0x%02X 0x%02X len=%u -> NACK (commands not implemented before F4)", f.cls, f.id,
-          f.len);
-  uint8_t b[16];
-  const size_t n = rb::encode_ack(false, f.cls, f.id, b, sizeof b);
-  txq::push_response(b, n);
-}
 }  // namespace
 
 void setup() {
@@ -38,16 +42,25 @@ void setup() {
   const rb::GnssConfig gcfg = settings::gnss_config();
   g_pvt_q = xQueueCreate(8, sizeof(gnss::Pvt));
   builder::set_gnss_config(gcfg);
+  imu::start();
+  builder::set_motion_source(motion);
+  storage::start();
   builder::add_sink(live_to_ble);
+  builder::add_sink(device::on_live);
+  ble::start(device::on_command);
+  device::start();  // retoma gravação salva (precisa de storage e GNSS de pé)
   builder::start(g_pvt_q);
-  ble::start(command_handler);
-  gnss::start(g_pvt_q, GA_DEFAULT_LIVE_RATE, settings::max_rate_hz(), gcfg.dyn_model);
+  const uint8_t rate = device::recording() ? device::rec_config().rate : device::default_live_rate();
+  gnss::start(g_pvt_q, rate, settings::max_rate_hz(), gcfg.dyn_model);
+  sim_rt::start(g_pvt_q, GA_SIM != 0);
 
+  power::start();
   console_cmds::register_base();
 }
 
 void loop() {
   console::poll();
+  imu::service_persistence();
   if (!g_hw_rev_set) {
     const gnss::Status g = gnss::status();
     if (g.present) {
