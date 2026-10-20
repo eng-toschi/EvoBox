@@ -4,7 +4,7 @@
 - F0–F6 implementadas; 107 testes native verdes. F0, F1, F2, F4, F5 provadas em bancada (com as ressalvas abaixo); F6 provada em bancada no modo simulação (5 voltas de 31,416 s, live + gravação + download).
 - ⚠️ **Hardware:** (1) o GPS "NEO-M8N" é um **u-blox M10** (SPG 5.10) → teto 10 Hz (D16); (2) o **MPU6050 não amostra** (responde no I²C, mas acelerômetro/giro/temperatura = 0) → **F3 bloqueada em hardware** (lógica provada em native).
 - ⚠️ **Incidente:** um RaceBox Mini S real (serial **2254302541**) estava no alcance e o `rb_client` mandou **uma vez** o preset A (`0x25` Track Day) + `0x22` para ele por engano. Ver "O que o Fernando precisa fazer". Ferramenta corrigida.
-- Faltam o celular com o Racevo (A1, A7/A9/A11–A14 no app) e a pista (F7).
+- Bancada com bleak: A2, A3 (30 min, MTU 23 e 517), A4, A5, A10, A12, A14, auto-shutdown e A8 por reset ✅. Faltam o celular com o Racevo (A1 e os fluxos no app) e a pista (F7).
 
 ## Fases
 
@@ -31,7 +31,7 @@
 - DIS exato → **provado** — `rb_client info`: `'RaceBox Mini S'`, `'0418890644'`, `'3.3'`, `'GA-ESP32-M10'`, `'GoAwake'` → classificação Racevo `miniS`. Bug achado e corrigido em bancada: o `setValue(const T&)` templado do NimBLE 1.4 gravava os bytes do **ponteiro** (`'N\t@?'`) e o `\0` final dos `char[N]`.
 - **A1** (Racevo encontra/conecta/classifica Mini S) → **pendente** — precisa do celular com o Racevo. Tudo que o Racevo checa (nome, UUID, DIS exato) foi provado com o bleak.
 - **A2** (1º frame < 1 s após subscribe) → **provado** — 49–90 ms (cliente), 6–66 ms (device).
-- **A3** (Δ`iTOW` exato, zero gaps em 30 min) → **provado a 10 Hz** — 30 min, 18000 frames, 17997/17999 Δ = 100 ms, **0 gaps, 0 não-monotônicos, 0 erros de assembler**. Ressalva: essa corrida foi com **MTU 23** (o teto do teste A5 ficou em RAM) — condição mais dura (90000 notifies fragmentados). Corrida com MTU 517 + gravação simultânea: ver "Resultado A3 final" abaixo. O único par 99/101 ms é o iTOW cru do receptor sem fix (as estatísticas da UART mostram o mesmo); o firmware não mexe. 25 Hz: só no modo sim (4249/4249 Δ = 40 ms, 0 gaps); 25 Hz real exige M9N (F7).
+- **A3** (Δ`iTOW` exato, zero gaps em 30 min) → **provado a 10 Hz** — 30 min, 18000 frames, 17997/17999 Δ = 100 ms, **0 gaps, 0 não-monotônicos, 0 erros de assembler**. Ressalva: essa corrida foi com **MTU 23** (o teto do teste A5 ficou em RAM) — condição mais dura (90000 notifies fragmentados). **Corrida final com MTU 517 e gravação simultânea a 10 Hz:** 30 min, 18002 frames, 17999/18001 Δ = 100 ms, **0 gaps, 0 não-monotônicos**; a gravação do mesmo período tem 18054 registros em 1805 s, **0 gaps**, download = `stored` (`captures/a3_30min_final.csv`, `a3_30min_download.csv`). O único par 99/101 ms é o iTOW cru do receptor sem fix (as estatísticas da UART mostram o mesmo); o firmware não mexe. 25 Hz: só no modo sim (4249/4249 Δ = 40 ms, 0 gaps); 25 Hz real exige M9N (F7).
 - **A4** (comandos < 500 ms) → **provado** — 27–74 ms em todos os comandos (`0x22`, `0x25`, `0x27`, `0x30`, `0x23`, `0x24`).
 - **A5** (MTU 23 sem perda) → **provado** — `ble mtu 23` no device; 200 frames em 1000 notifies de 20 B, 0 bad, 0 drops; e os 30 min acima.
 
@@ -44,7 +44,7 @@
 - **Idempotência do `0x25` (R11/R13)** → **provado em bancada** — preset A por 5 conexões seguidas: um único `recording started`, nenhuma reconfiguração de taxa no log, download com só `state=1`/`state=0` (1 run).
 - Preset B com a gravação ativa (mesma taxa) → **provado** — `recording reconfigured`, sem marcador.
 - Erase com gravação ativa → NACK **provado**. `0x27` com o exemplo do vendor (`08 01 14`) → ACK e leitura `8/1/2,0 m`; dyn 9 → NACK; restaurado para `04 00 1E`.
-- **A9 parcial** (erase com progresso + cancel) → **provado** — 33 passos 0→100 % + ACK em 1,2–3 s; cancel em 54 % → ACK, índice reflete o que sobrou.
+- **A9** (erase com progresso + cancel; no Racevo pendente) → **provado** — 33 passos 0→100 % + ACK em 1,2–3 s; cancel em 54 % → ACK, índice reflete o que sobrou.
 - **A11 parcial** (reconexões sem `0x26` novo) → **provado** com o bleak (4 reconexões); com o Racevo **pendente**.
 
 ### F5 — status: 🟡 (bancada ✅; A7/A8 completos no Racevo/cabo pendentes)
@@ -56,7 +56,9 @@
 - Retomada da gravação salva no boot → **provado** — `rec: resuming saved recording`; o erase em seguida recebeu NACK (gravando), como manda a SPEC.
 - Download cancel → **provado** — cancel após 100 → ACK em 237/376 (o vendor avisa que chegam registros depois do cancel).
 - Throughput do download → **28,4 KB/s** no Mac (alvo SPEC ≥ 30). O limite agora é a central (macOS, intervalo 15 ms; `enomem_retries` altos). Medir no celular.
-- **A14** (memória cheia: live segue, NACK) → lógica **provada em native**; em bancada **pendente** (encher 25 872 registros leva ~17 min a 25 Hz).
+- **A14** (memória cheia: live segue, NACK) → **provado em bancada com o bleak** — log encheu (25747 registros + 8 marcadores, 2162674/2162688 B): `recording stopped by itself (memory full); live continues`, `0x26 state=0` gravado, `memory=100%`; o live seguiu a 25 Hz sem perder nada (9503/9503 Δ = 40 ms, `live_dropped=0`); `0x25` Enable=1 → **NACK**; `0x25` lido → `enable=0`. Com o Racevo (chip de backup some): **pendente**.
+- **Auto-shutdown (b3)** → **provado em bancada** — flags `0x09`, intervalo 10 s, sem fix: 10 s depois de o cliente sair, `auto-shutdown: no data for 10 s and no BLE client` → flush → deep sleep; `0x26 state=0` persistido; reset por EN → `resuming saved recording`. Acordar pelo botão BOOT: **pendente** (precisa de mão).
+- Erase completo dos 2 MB: 4,7 s; boot com o log 70 % cheio monta em 0,7 s.
 
 ### F6 — status: 🟡 (sim ✅ em bancada; dinâmica só em native; demo no Racevo pendente)
 - Modo simulação (pista circular, fix 3D, IMU coerente, numSV = 0, hAcc 2,5 m) → **provado em native** (`test_sim`, inclui o vetor de data do vendor) e **em bancada** — `sim on` + preset A: live a 25 Hz 4249/4249 Δ = 40 ms; **5 voltas de 31,416 s** (esperado 2π·100/20 = 31,4159 s) no live **e** no download (4378 registros, 0 gaps).
