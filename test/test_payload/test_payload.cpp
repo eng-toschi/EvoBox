@@ -161,6 +161,24 @@ void test_battery_byte() {
   TEST_ASSERT_TRUE(rb::BuildOptions{}.battery != 0);
 }
 
+void test_min_hacc_clears_fix_ok_only_when_worse() {
+  rb::LiveData d;
+  d.fix_status = 3;
+  d.fix_flags = 0x01 | 0x20;
+  d.h_acc_mm = 3000;
+  rb::apply_min_hacc(d, 30);  // 3,0 m: igual ao limite → mantém
+  TEST_ASSERT_TRUE(rb::good_fix(d));
+  d.h_acc_mm = 3001;
+  rb::apply_min_hacc(d, 30);
+  TEST_ASSERT_FALSE(rb::good_fix(d));
+  TEST_ASSERT_EQUAL_HEX8(0x20, d.fix_flags);  // só o b0 muda
+  TEST_ASSERT_EQUAL_UINT8(3, d.fix_status);
+  d.fix_flags = 0x01;
+  d.h_acc_mm = 924;
+  rb::apply_min_hacc(d, 20);
+  TEST_ASSERT_TRUE(rb::good_fix(d));
+}
+
 // --- iTOW monotônico (SPEC §5.2, R14) -----------------------------------------
 
 void test_itow_hot_start_is_raw() {
@@ -237,6 +255,7 @@ int main(int, char**) {
   RUN_TEST(test_speed_3d);
   RUN_TEST(test_motion_clamp_never_wraps);
   RUN_TEST(test_battery_byte);
+  RUN_TEST(test_min_hacc_clears_fix_ok_only_when_worse);
   RUN_TEST(test_itow_hot_start_is_raw);
   RUN_TEST(test_itow_cold_start_counter_then_resolution_jump_back);
   RUN_TEST(test_itow_week_rollover_passes_through);

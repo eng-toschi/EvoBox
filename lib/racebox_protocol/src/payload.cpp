@@ -112,6 +112,10 @@ uint8_t battery_byte(bool measured, uint8_t percent, bool charging) {
   return static_cast<uint8_t>(pct | (charging ? 0x80 : 0x00));
 }
 
+void apply_min_hacc(LiveData& d, uint8_t min_hacc_dm) {
+  if (d.h_acc_mm > static_cast<uint32_t>(min_hacc_dm) * 100u) d.fix_flags &= static_cast<uint8_t>(~0x01u);
+}
+
 LiveData live_from_navpvt(const uint8_t* pvt, const Motion& m, const BuildOptions& opt) {
   // NAV-PVT 0..47 é idêntico ao payload RaceBox 0..47 (SPEC §5.2).
   uint8_t raw[kLivePayloadLen];

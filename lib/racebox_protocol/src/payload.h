@@ -78,6 +78,14 @@ struct BuildOptions {
   uint8_t battery = 0x64;  // já codificado por battery_byte()
 };
 
+// "Good fix" do vendor (p.5): Fix Status 3 e Fix Status Flags b0.
+inline bool good_fix(const LiveData& d) { return d.fix_status == 3 && (d.fix_flags & 0x01) != 0; }
+
+// 0x27 "minimum horizontal accuracy" (vendor p.10, SPEC §7.6): com hAcc pior
+// que o mínimo o device reporta perda de fix zerando o b0 de Fix Status Flags.
+// min_hacc_dm em décimos de metro (D15).
+void apply_min_hacc(LiveData& d, uint8_t min_hacc_dm);
+
 // Monta o payload RaceBox a partir do NAV-PVT cru (92 B, layout u-blox M8/M9).
 // O iTOW sai cru; a correção de monotonicidade (§5.2) é feita por quem chama.
 LiveData live_from_navpvt(const uint8_t pvt[kNavPvtLen], const Motion& motion,

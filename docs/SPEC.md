@@ -46,7 +46,7 @@ O repo anterior (`Open-Source-RaceBox-mini-Emulator`) tinha optado por um **prot
 | Bloco | Componente | Ligação |
 |---|---|---|
 | MCU | ESP32-WROOM-32D (HW-394, USB-C, CP2102), 4 MB flash | serial de debug `115200` (porta no Mac: `/dev/cu.usbserial-220`) |
-| GNSS | u-blox **NEO-M8N** (breakout GY-GPS V3-NEO), alimentado em 5 V | **UART2**: GPIO16 = RX2 (← TX do GPS), GPIO17 = TX2 (→ RX do GPS) |
+| GNSS | u-blox **NEO-M8N** (breakout GY-GPS V3-NEO), alimentado em 5 V — ⚠️ **divergência medida em 2026-10-20: o chip responde como u-blox M10** (`UBX-MON-VER`: `ROM SPG 5.10 (7b202e)`, hw `000A0000`, `PROTVER=34.10`, sem `MOD=`), ver D16 | **UART2**: GPIO16 = RX2 (← TX do GPS), GPIO17 = TX2 (→ RX do GPS) |
 | IMU | MPU6050, alimentado em 3,3 V, AD0 em GND → endereço `0x68` | **I²C**: GPIO21 = SDA, GPIO22 = SCL |
 
 Montagem física: MPU6050 invertido sob o ESP32, GPS por cima. **O MPU invertido é exatamente o caso que a calibração de montagem (§6.4) resolve** — nenhum sinal de eixo é hardcoded.
@@ -61,7 +61,7 @@ Montagem física: MPU6050 invertido sob o ESP32, GPS por cima. **O MPU invertido
 
 Regras do firmware:
 
-1. Detectar o módulo no boot (`UBX-MON-VER`) e definir `gnss_max_rate_hz` (M8N → 10; M9N → 25).
+1. Detectar o módulo no boot (`UBX-MON-VER`) e definir `gnss_max_rate_hz` (M8N → 10; M9N → 25; M10 → 10, D16). A geração sai de `MOD=` quando existe; senão de `PROTVER` (M8 ≤ 23, M9 27–33, M10 ≥ 34) — o hwVersion `000A0000` é comum a M9 e M10.
 2. Uma taxa pedida acima do máximo é **limitada ao máximo**, logada no console e refletida no espaçamento real de `iTOW`. **Proibido** interpolar, duplicar ou extrapolar fixes para "chegar" a 25 Hz — o lap engine do Racevo interpola cruzamento de linha entre fixes reais (±2 ms); um fix fabricado vira tempo de volta falso.
 3. Constelações por módulo/taxa (default, `‹VALIDAR›` em campo): M8N @10 Hz = GPS+GLONASS; M9N @25 Hz = GPS+GLONASS+Galileo+BeiDou (se o M9N perder qualidade a 25 Hz com 4 GNSS, cair para GPS+Galileo+GLONASS e documentar).
 
@@ -203,7 +203,9 @@ Para o usuário poder escolher 10 Hz no live **sem** gravar, adicionar a constan
 - Boot a 9600 (default de fábrica), reconfigurar para **115200** (M8N) ou **230400** (M9N @25 Hz) e reabrir a UART2.
 - Desligar **todas** as sentenças NMEA na UART1 do módulo; habilitar só `UBX-NAV-PVT` (1 por época). Orçamento a 25 Hz: 100 B × 25 = 2,5 KB/s — folgado em 230400.
 - Configurar e **salvar** no BBR/flash do módulo (`CFG-CFG` no M8, layers RAM+BBR no M9) para boots rápidos.
-- Biblioteca: **SparkFun u-blox GNSS v3** (já usada no projeto), com `setAutoPVTcallbackPtr`. O callback só copia o struct para uma fila; nada de BLE dentro do callback.
+- Driver UBX próprio (D13): a task `gnss` lê a UART2, passa os bytes pelo mesmo `FrameAssembler` de `lib/racebox_protocol` e copia o NAV-PVT **cru** (92 B) para a `pvt_q`; nada de BLE na task. Montagem de comandos e parse (`src/gnss/ublox_config.*`) são C++ puro, testados em native.
+- M8: compara (poll) `CFG-PRT`/`CFG-MSG`/`CFG-NAV5` antes de escrever e só faz `CFG-CFG` (BBR+flash) se algo persistente mudou — sem desgastar a flash do módulo a cada boot. M9/M10: `CFG-VALSET` em RAM+BBR. Mudança de taxa em runtime: só RAM.
+- A última baud em que o receptor respondeu fica em NVS e é a primeira tentativa do autobaud.
 
 ### 5.5 Byte de bateria (offset 67)
 
@@ -305,7 +307,7 @@ Payload vazio → iniciar erase imediatamente; emitir `0x24` com 1 B de progress
 ### 7.6 `0x27` — Config do receptor GNSS
 
 - Ler (vazio) → 3 B: `dynModel | 3D speed (bool) | min horizontal accuracy (décimos de metro)` — o exemplo do vendor (Rev 8 p.10) codifica 2,0 m como `0x14` (D15).
-- Escrever 3 B → validar `dynModel ∈ 0..8` (NACK fora) e aplicar: M8 → `CFG-NAV5.dynModel`; M9 → `CFG-NAVSPG-DYNMODEL`. 3D speed afeta só o cálculo do offset 48. Min hAcc afeta o "good fix" (§5.2).
+- Escrever 3 B → validar `dynModel ∈ 0..8` (NACK fora) e aplicar: M8 → `CFG-NAV5.dynModel`; M9 → `CFG-NAVSPG-DYNMODEL`. 3D speed afeta só o cálculo do offset 48. Min hAcc afeta o "good fix" (§5.2) e, como diz o vendor (p.10), com `hAcc` pior que o mínimo o frame sai com o **b0 de Fix Status Flags zerado** ("report fix loss"). Aplicado no firmware (não no `pAcc` do receptor, que é em metros inteiros e difere entre M8/M9/M10).
 - Default de fábrica: `4` (automotive), ground speed, 3,0 m (byte `30`). Persistir em NVS.
 - **Nunca** aceitar UBX cru do cliente — só este formato documentado.
 
@@ -476,11 +478,13 @@ EvoBox/
 | D7 | Auto-shutdown: wake por timer além do botão? | Só botão na v1 |
 | D8 | Segurança de memória (`0x30` real) | Fora da v1 (sempre ACK) |
 | D9 | Constelações a 25 Hz no M9N | 4 GNSS; reduzir se `hAcc`/numSV degradar |
-| D10 | Tempo de boot+config do GNSS vs timeout de 6 s do Racevo | Medir na F1; config salva no BBR do módulo |
+| D10 | Tempo de boot+config do GNSS vs timeout de 6 s do Racevo | **Medido (2026-10-20, M10 da bancada):** primeiro NAV-PVT a 53–130 ms do boot com o receptor já configurado (BBR) e baud em NVS; 1,96 s no pior caso visto (receptor a 9600/NMEA, autobaud + troca de baud + config). Pendente: power-on frio com o backup do módulo descarregado |
 | D11 | Memória de ~16 min + backup armado em toda sessão (R11) → enche rápido e o Racevo não apaga sozinho | Aceitar na v1 (live não é afetado); reforça D2 |
 | D12 | Teto de taxa `max_rate` (§5.3) para ter 10 Hz com o Racevo num M9N | Implementar; default = sem teto |
+| D13 | Biblioteca GNSS | **Decidido (2026-10-20):** driver UBX próprio em vez da SparkFun u-blox GNSS v3. Motivo: o `FrameAssembler` já valida UBX; o NAV-PVT segue **cru** até o builder (o mapeamento NAV-PVT→RaceBox é testado byte a byte em native); montagem de CFG/VALSET e parse de MON-VER testáveis sem hardware; sem callback de biblioteca em contexto de outra task. Ver §5.4 |
 | D14 | `0x25` com 10 B: qual campo falta? | **Decidido (2026-10-19):** o layout do vendor tem 12 B com o auto-shutdown no fim (offset 10); 10 B = os 10 primeiros, e o auto-shutdown **mantém o valor atual**. `‹VALIDAR›` contra um Mini S real (o Racevo manda 12) |
 | D15 | Unidade do *min horizontal accuracy* do `0x27` | **Decidido (2026-10-19):** décimos de metro. A prosa do vendor diz "metros", mas o único exemplo em bytes (Rev 8 p.10, `B5 62 FF 27 03 00 08 01 14 46 20`, checksum válido) decodifica `0x14` = 20 como "2.0 m". Byte do vendor > prosa. Default 3,0 m = `30`. O Racevo não usa o `0x27`. `‹VALIDAR›` lendo o `0x27` de um Mini S real (esperado `04 00 1E`) |
+| D16 | **Divergência de hardware:** a placa vendida como NEO-M8N tem um chip **u-blox M10** (SPG 5.10, PROTVER 34.10) | **Decidido (2026-10-20):** tratar como M10: config por `CFG-VALSET`, baud 115200, **teto de 10 Hz** (tabela §2.2: "10 Hz com 4 GNSS, ‹VALIDAR›"). Medido em bancada, **sem fix**: com `measRate` 40 ms o M10 entregou 416 NAV-PVT seguidos com Δ`iTOW` = 40 ms e zero gaps — isso **não** prova 25 Hz com fix (épocas sem solução são baratas). Constelações de fábrica deste módulo: GPS+Galileo+BeiDou (sem GLONASS); o firmware não mexe. `‹VALIDAR›` em campo com fix: 25 Hz com GPS+GAL; se Δ`iTOW` ficar em 40 ms com `hAcc`/numSV bons, subir o teto do M10 e documentar. Consequência: com esta placa, o Racevo recebe 10 Hz (igual ao plano do M8N) |
 
 ### Itens do checklist `‹VERIFY›` do Racevo (04 §11) que este hardware ajuda a fechar
 
