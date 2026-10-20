@@ -1,0 +1,89 @@
+{
+  "_comment": "RaceBox protocol golden vectors. Frames are verbatim from the public RaceBox BLE Protocol Rev 8 worked examples (see docs/04_RACEBOX_TELEMETRY_SPEC.md §4-§7). Real vendor bytes with real checksums; consumed by packages/racebox_protocol tests and reusable by any other implementation. hex strings have no separators.",
+  "liveData": {
+    "_note": "docs/04 §4 vendor worked example; decodes byte-exact. Rotation rates: the vendor TEXT prints magnitudes (2.09, 0.04) but the wire bytes are signed Int16 LE /100 (both reference impls agree), so the byte-accurate decode is -2.09 and -0.04. The §4 sign convention is itself a ‹VERIFY› item (§11 #2).",
+    "model": "racebox_mini",
+    "hex": "B562FF015000A0E70C07E607010A08330837190000002AAD4D0E0301EA0BC693E10D3B376F19618C09000F0109009C0300002C0700002300000000000000D000000088A9DD002C010059FDFF7100CE032FFF5600FCFF06DB",
+    "expected": {
+      "iTOW": 118286240,
+      "year": 2022,
+      "month": 1,
+      "day": 10,
+      "hour": 8,
+      "minute": 51,
+      "second": 8,
+      "validityFlags": 55,
+      "timeAccuracyNs": 25,
+      "nanoseconds": 239971626,
+      "fixStatus": 3,
+      "fixStatusFlags": 1,
+      "dateTimeFlags": 234,
+      "numSV": 11,
+      "longitudeDeg": 23.2887238,
+      "latitudeDeg": 42.6719035,
+      "wgsAltitudeM": 625.761,
+      "mslAltitudeM": 590.095,
+      "horizontalAccuracyM": 0.924,
+      "verticalAccuracyM": 1.836,
+      "speedMps": 0.035,
+      "headingDeg": 0.0,
+      "speedAccuracyMps": 0.208,
+      "headingAccuracyDeg": 145.26856,
+      "pdop": 3.0,
+      "latLonFlags": 0,
+      "batteryRaw": 89,
+      "batteryPercent": 89,
+      "charging": false,
+      "gxG": -0.003,
+      "gyG": 0.113,
+      "gzG": 0.974,
+      "rotXDps": -2.09,
+      "rotYDps": 0.86,
+      "rotZDps": -0.04,
+      "goodFix": true
+    }
+  },
+  "checksumVectors": [
+    { "name": "recordingStatusQuery (§5.2)", "hex": "B562FF22000021 62" },
+    { "name": "downloadStart (§5.3)", "hex": "B562FF23000022 65" },
+    { "name": "downloadStartReply780 (§5.3)", "hex": "B562FF2304000C0300003 53E" },
+    { "name": "downloadCancel (§5.3)", "hex": "B562FF230100FF22 89" },
+    { "name": "eraseStart (§5.6)", "hex": "B562FF24000023 68" },
+    { "name": "eraseProgress59 (§5.6)", "hex": "B562FF2401003B5F C9" },
+    { "name": "eraseCancel (§5.6)", "hex": "B562FF240100FF23 8D" },
+    { "name": "ackUnlock (§5.1)", "hex": "B562FF020200FF3032 3A" },
+    { "name": "unlock123456 (§7)", "hex": "B562FF30040040E20100 5608" },
+    { "name": "recordingConfigPresetA (§6.5)", "hex": "B562FF250C000100 1F006D051E001E002C012B15" }
+  ],
+  "downloadStartReply": {
+    "hex": "B562FF2304000C0300003 53E",
+    "expectedMaxMessages": 780
+  },
+  "eraseProgress": {
+    "hex": "B562FF2401003B5F C9",
+    "percent": 59
+  },
+  "ack": {
+    "_note": "Rev 8 prints this ACK-of-unlock example as '...30 32 32', but the 8-bit Fletcher of class+id+len+payload (FF 02 02 00 FF 30) is 32 3A — CK_B in the doc is a transcription typo (verified against the five other vendor frames here, all of which match). Corrected to 32 3A.",
+    "hex": "B562FF020200FF3032 3A",
+    "ackedClass": 255,
+    "ackedId": 48,
+    "positive": true
+  },
+  "unlock": {
+    "hex": "B562FF30040040E20100 5608",
+    "securityCode": 123456
+  },
+  "recordingConfigPresetA": {
+    "hex": "B562FF250C000100 1F006D051E001E002C012B15",
+    "expected": {
+      "enable": true,
+      "dataRate": 0,
+      "flags": 31,
+      "stationarySpeedMmps": 1389,
+      "stationaryIntervalS": 30,
+      "noFixIntervalS": 30,
+      "autoShutdownIntervalS": 300
+    }
+  }
+}
