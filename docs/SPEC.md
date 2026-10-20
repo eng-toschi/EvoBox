@@ -268,7 +268,7 @@ Query vazia → resposta 12 B: `recording(1) | memory %(1) | security(1)=0x00 | 
 ### 7.2 `0x25` — Configuração da gravação
 
 - Ler: payload vazio → 12 B com a config atual.
-- Escrever: aceitar **10 ou 12 B** (`‹VERIFY›` nº 4 do Racevo — o vendor diz 10 na prosa e manda 12 no exemplo). ACK em sucesso.
+- Escrever: aceitar **10 ou 12 B** (`‹VERIFY›` nº 4 do Racevo — o vendor diz 10 na prosa e manda 12 no exemplo). Com 10 B falta o último campo (auto-shutdown interval, offset 10), que **mantém o valor atual** (D14). ACK em sucesso.
 - NACK se: data rate fora de 0–4, memória cheia sem espaço para iniciar, ou download/erase em andamento.
 - `Enable=1` com o device **parado**: entra em gravação imediatamente, grava um `0x26` (state=1) e reconfigura a taxa. `Enable=0`: grava `0x26` (state=0), para, volta à taxa padrão.
 - **Idempotência (R11/R13):** `Enable=1` com o device **já gravando e config idêntica** → ACK e **nada mais** (sem reconfigurar o receptor, sem gap, sem `0x26`). Com config diferente → aplicar como o vendor (gap ≤ 1,5 s), gravando `0x26` state=0 + state=1 só se a taxa mudou `‹VALIDAR›` contra um Mini S real.
@@ -304,9 +304,9 @@ Payload vazio → iniciar erase imediatamente; emitir `0x24` com 1 B de progress
 
 ### 7.6 `0x27` — Config do receptor GNSS
 
-- Ler (vazio) → 3 B: `dynModel | 3D speed (bool) | min horizontal accuracy (m)`.
+- Ler (vazio) → 3 B: `dynModel | 3D speed (bool) | min horizontal accuracy (décimos de metro)` — o exemplo do vendor (Rev 8 p.10) codifica 2,0 m como `0x14` (D15).
 - Escrever 3 B → validar `dynModel ∈ 0..8` (NACK fora) e aplicar: M8 → `CFG-NAV5.dynModel`; M9 → `CFG-NAVSPG-DYNMODEL`. 3D speed afeta só o cálculo do offset 48. Min hAcc afeta o "good fix" (§5.2).
-- Default de fábrica: `4` (automotive), ground speed, `3` m. Persistir em NVS.
+- Default de fábrica: `4` (automotive), ground speed, 3,0 m (byte `30`). Persistir em NVS.
 - **Nunca** aceitar UBX cru do cliente — só este formato documentado.
 
 ### 7.7 `0x30` — Unlock
@@ -405,7 +405,7 @@ EvoBox/
 |---|---|
 | Golden live frame | Construir o payload a partir dos campos decodificados do exemplo do vendor → **byte-idêntico** ao frame `B5 62 FF 01 50 00 … 06 DB` |
 | Checksum vectors | Fletcher-8 reproduz todos os frames do fixture; frame adulterado é rejeitado |
-| Respostas de comando | `0x22`, `0x23` (780 msgs), `0x26`, ACK do unlock (`B5 62 FF 02 02 00 FF 30 32 32`), preset `B5 62 FF 25 0C 00 01 00 1F 00 6D 05 1E 00 1E 00 2C 01 2B 15` — parse e re-encode byte-idênticos |
+| Respostas de comando | `0x22`, `0x23` (780 msgs), `0x26`, ACK do unlock (`B5 62 FF 02 02 00 FF 30 32 3A` — o PDF imprime `32 32`, typo do vendor; o fixture traz o checksum correto), preset `B5 62 FF 25 0C 00 01 00 1F 00 6D 05 1E 00 1E 00 2C 01 2B 15` — parse e re-encode byte-idênticos |
 | Assembler | Re-chunking em todos os pontos de corte (N pequeno) + aleatório com seed fixa; concatenação; gotejamento 1 B; ruído; `B5 62` dentro do payload não dessincroniza; overflow limitado; **nunca** trava |
 | Clamp | gyro 400 °/s → `+32767`, nunca negativo |
 
@@ -479,6 +479,8 @@ EvoBox/
 | D10 | Tempo de boot+config do GNSS vs timeout de 6 s do Racevo | Medir na F1; config salva no BBR do módulo |
 | D11 | Memória de ~16 min + backup armado em toda sessão (R11) → enche rápido e o Racevo não apaga sozinho | Aceitar na v1 (live não é afetado); reforça D2 |
 | D12 | Teto de taxa `max_rate` (§5.3) para ter 10 Hz com o Racevo num M9N | Implementar; default = sem teto |
+| D14 | `0x25` com 10 B: qual campo falta? | **Decidido (2026-10-19):** o layout do vendor tem 12 B com o auto-shutdown no fim (offset 10); 10 B = os 10 primeiros, e o auto-shutdown **mantém o valor atual**. `‹VALIDAR›` contra um Mini S real (o Racevo manda 12) |
+| D15 | Unidade do *min horizontal accuracy* do `0x27` | **Decidido (2026-10-19):** décimos de metro. A prosa do vendor diz "metros", mas o único exemplo em bytes (Rev 8 p.10, `B5 62 FF 27 03 00 08 01 14 46 20`, checksum válido) decodifica `0x14` = 20 como "2.0 m". Byte do vendor > prosa. Default 3,0 m = `30`. O Racevo não usa o `0x27`. `‹VALIDAR›` lendo o `0x27` de um Mini S real (esperado `04 00 1E`) |
 
 ### Itens do checklist `‹VERIFY›` do Racevo (04 §11) que este hardware ajuda a fechar
 
